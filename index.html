@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Magical Christmas - Aurora & Star Dust</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #000208;
+            overflow: hidden;
+            font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            user-select: none;
+        }
+        #greeting-container {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 10;
+            width: 100%;
+            cursor: pointer;
+        }
+        .main-title {
+            color: #fff;
+            font-size: clamp(3rem, 10vw, 5.5rem);
+            font-weight: 200;
+            letter-spacing: 0.3em;
+            margin: 0;
+            text-shadow: 0 0 30px rgba(255,255,255,0.4);
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            display: inline-block;
+        }
+        .main-title:hover {
+            transform: scale(1.05);
+            text-shadow: 0 0 50px rgba(255,215,0,0.9);
+            color: #ffed99;
+        }
+        .sub-title {
+            color: #e5c07b;
+            font-size: 1.1rem;
+            letter-spacing: 0.6em;
+            margin-top: 2rem;
+            opacity: 0.8;
+            text-transform: uppercase;
+        }
+        .burst-particle {
+            position: absolute;
+            pointer-events: none;
+            background: radial-gradient(circle, #fff, #ffdd44);
+            border-radius: 50%;
+            z-index: 9;
+        }
+        #tap-hint {
+            position: absolute;
+            bottom: 60px;
+            width: 100%;
+            text-align: center;
+            color: rgba(255,255,255,0.25);
+            font-size: 0.85rem;
+            letter-spacing: 0.3em;
+            animation: breathe 2.5s infinite ease-in-out;
+        }
+        @keyframes breathe {
+            0%, 100% { opacity: 0.15; transform: translateY(0); }
+            50% { opacity: 0.5; transform: translateY(-5px); }
+        }
+    </style>
+</head>
+<body>
+    <div id="greeting-container">
+        <h1 class="main-title" id="wish-text">圣诞快乐</h1>
+        <div class="sub-title" id="sub-wish">MERRY CHRISTMAS</div>
+    </div>
+    <div id="tap-hint">点击文字 许下心愿</div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+
+    <script>
+        let scene, camera, renderer, composer, clock;
+        let treePoints, snowPoints, ribbons = [], trunk, star, auroraParticles;
+        let bloomPass;
+        let boostBloom = 0;
+
+        const wishes = [
+            { cn: "圣诞快乐", en: "MERRY CHRISTMAS" },
+            { cn: "平安喜乐", en: "PEACE AND JOY" },
+            { cn: "万事胜意", en: "ALL THE BEST" },
+            { cn: "心想事成", en: "DREAMS COME TRUE" },
+            { cn: "福启新岁", en: "HAPPY NEW YEAR" }
+        ];
+        let wishIdx = 0;
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x000208, 0.008);
+
+            camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 1500);
+            camera.position.set(0, 25, 100);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.4;
+            document.body.appendChild(renderer.domElement);
+
+            clock = new THREE.Clock();
+
+            const renderScene = new THREE.RenderPass(scene, camera);
+            // 修正引用名以防止报错
+            bloomPass = new THREE.UnrealBloomPass(
+                new THREE.Vector2(window.innerWidth, window.innerHeight),
+                2.0, 0.5, 0.15
+            );
+            composer = new THREE.EffectComposer(renderer);
+            composer.addPass(renderScene);
+            composer.addPass(bloomPass);
+
+            createLivingTree();
+            createAurora();
+            createDynamicSnow();
+            createStarDustGround();
+
+            window.addEventListener('resize', onWindowResize);
+            
+            const container = document.getElementById('greeting-container');
+            container.addEventListener('mousedown', handleInteraction);
+            container.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                handleInteraction(e.touches[0]);
+            });
+        }
+
+        function handleInteraction(e) {
+            wishIdx = (wishIdx + 1) % wishes.length;
+            const textEl = document.getElementById('wish-text');
+            const subEl = document.getElementById('sub-wish');
+            textEl.style.opacity = 0;
+            setTimeout(() => {
+                textEl.innerText = wishes[wishIdx].cn;
+                subEl.innerText = wishes[wishIdx].en;
+                textEl.style.opacity = 1;
+            }, 200);
+            boostBloom = 3.5;
+            createBurst(e.clientX, e.clientY);
+        }
+
+        function createBurst(x, y) {
+            for (let i = 0; i < 20; i++) {
+                const p = document.createElement('div');
+                p.className = 'burst-particle';
+                const size = Math.random() * 6 + 2;
+                p.style.width = size + 'px'; p.style.height = size + 'px';
+                p.style.left = x + 'px'; p.style.top = y + 'px';
+                document.body.appendChild(p);
+                const angle = Math.random() * Math.PI * 2;
+                const dist = Math.random() * 160 + 50;
+                p.animate([{ transform: 'translate(0, 0) scale(1)', opacity: 1 }, { transform: `translate(${Math.cos(angle)*dist}px, ${Math.sin(angle)*dist}px) scale(0)`, opacity: 0 }], {
+                    duration: 1200, easing: 'cubic-bezier(0, .9, .57, 1)', fill: 'forwards'
+                });
+                setTimeout(() => p.remove(), 1200);
+            }
+        }
+
+        function createLivingTree() {
+            const trunkGeo = new THREE.CylinderGeometry(0.6, 1.8, 55, 10);
+            const trunkMat = new THREE.MeshBasicMaterial({ color: 0x0a0502 });
+            trunk = new THREE.Mesh(trunkGeo, trunkMat);
+            trunk.position.y = 5;
+            scene.add(trunk);
+
+            const count = 50000;
+            const geo = new THREE.BufferGeometry();
+            const pos = new Float32Array(count * 3);
+            const col = new Float32Array(count * 3);
+            const pData = new Float32Array(count * 3);
+
+            const colors = [
+                new THREE.Color("#003311"), 
+                new THREE.Color("#00ff99"), 
+                new THREE.Color("#ffdd44"), 
+                new THREE.Color("#ff0033")  
+            ];
+
+            for (let i = 0; i < count; i++) {
+                const t = i / count;
+                const h = t * 50;
+                const baseRadius = (50 - h) * 0.45;
+                const spiral = t * Math.PI * 20;
+                const branchEffect = Math.sin(spiral) * 2.0;
+                const radius = Math.max(0, baseRadius + branchEffect + (Math.random() - 0.5) * 5);
+                const angle = Math.random() * Math.PI * 2;
+
+                pos[i * 3] = Math.cos(angle) * radius;
+                pos[i * 3 + 1] = h - 20;
+                pos[i * 3 + 2] = Math.sin(angle) * radius;
+
+                pData[i * 3] = Math.random() * Math.PI * 2; 
+                pData[i * 3 + 1] = 0.4 + Math.random() * 0.8; 
+                pData[i * 3 + 2] = Math.random(); 
+
+                let color;
+                const rand = Math.random();
+                if (rand > 0.99) color = colors[3]; 
+                else if (rand > 0.97) color = colors[2]; 
+                else color = colors[0].clone().lerp(colors[1], Math.random() * 0.4 + t * 0.6);
+                
+                col[i * 3] = color.r; col[i * 3 + 1] = color.g; col[i * 3 + 2] = color.b;
+            }
+
+            geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+            geo.setAttribute('pData', new THREE.BufferAttribute(pData, 3));
+
+            treePoints = new THREE.Points(geo, new THREE.PointsMaterial({
+                size: 0.22, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, opacity: 0.9, sizeAttenuation: true
+            }));
+            scene.add(treePoints);
+
+            // 恢复原版几何体星星
+            const starShape = new THREE.Shape();
+            for(let i=0; i<10; i++){
+                const r = i % 2 === 0 ? 3.5 : 1.4;
+                const a = (i / 5) * Math.PI;
+                if(i===0) starShape.moveTo(Math.cos(a)*r, Math.sin(a)*r);
+                else starShape.lineTo(Math.cos(a)*r, Math.sin(a)*r);
+            }
+            const starGeo = new THREE.ExtrudeGeometry(starShape, { depth: 0.8, bevelEnabled: false });
+            star = new THREE.Mesh(starGeo, new THREE.MeshBasicMaterial({ color: 0xffdd44 }));
+            star.position.y = 33;
+            star.scale.set(0.7, 0.7, 0.7);
+            scene.add(star);
+
+            createRibbon(18, 0xffffff, 0.45);
+            createRibbon(-14, 0xffbb00, 0.35);
+        }
+
+        function createRibbon(spin, colorHex, size) {
+            const count = 2000;
+            const geo = new THREE.BufferGeometry();
+            const pos = new Float32Array(count * 3);
+            for(let i=0; i<count; i++) {
+                const t = i / count;
+                const angle = t * Math.PI * spin;
+                const r = (50 - t * 50) * 0.46;
+                pos[i*3] = Math.cos(angle) * r;
+                pos[i*3+1] = t * 50 - 20;
+                pos[i*3+2] = Math.sin(angle) * r;
+            }
+            geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            const rib = new THREE.Points(geo, new THREE.PointsMaterial({ color: colorHex, size: size, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending }));
+            scene.add(rib);
+            ribbons.push({ mesh: rib, spin: spin * 0.01 });
+        }
+
+        function createAurora() {
+            const count = 5000;
+            const geo = new THREE.BufferGeometry();
+            const pos = new Float32Array(count * 3);
+            for(let i=0; i<count; i++) {
+                pos[i*3] = (Math.random() - 0.5) * 600;
+                pos[i*3+1] = Math.random() * 200 + 50;
+                pos[i*3+2] = -400 + Math.random() * 100;
+            }
+            geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            auroraParticles = new THREE.Points(geo, new THREE.PointsMaterial({
+                color: 0x00ffcc, size: 2.0, transparent: true, opacity: 0.15, blending: THREE.AdditiveBlending
+            }));
+            scene.add(auroraParticles);
+        }
+
+        function createStarDustGround() {
+            const count = 8000;
+            const geo = new THREE.BufferGeometry();
+            const pos = new Float32Array(count * 3);
+            const cols = new Float32Array(count * 3);
+            const c1 = new THREE.Color("#0a2a4a");
+            const c2 = new THREE.Color("#00ffbb");
+
+            for(let i=0; i<count; i++) {
+                const r = 20 + Math.random() * 100;
+                const angle = Math.random() * Math.PI * 2;
+                pos[i*3] = Math.cos(angle) * r;
+                pos[i*3+1] = -20.5 + (Math.random() - 0.5) * 0.5;
+                pos[i*3+2] = Math.sin(angle) * r;
+                
+                const color = c1.clone().lerp(c2, Math.random() * 0.3);
+                cols[i*3] = color.r; cols[i*3+1] = color.g; cols[i*3+2] = color.b;
+            }
+            geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+            const groundDust = new THREE.Points(geo, new THREE.PointsMaterial({
+                size: 0.4, vertexColors: true, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending
+            }));
+            scene.add(groundDust);
+        }
+
+        function createDynamicSnow() {
+            const count = 4500;
+            const pos = new Float32Array(count * 3);
+            const extra = new Float32Array(count * 2);
+            for(let i=0; i<count; i++) {
+                pos[i*3] = (Math.random()-0.5)*300;
+                pos[i*3+1] = Math.random()*150 - 20;
+                pos[i*3+2] = (Math.random()-0.5)*300;
+                extra[i*2] = Math.random() * Math.PI * 2;
+                extra[i*2+1] = 0.12 + Math.random() * 0.15;
+            }
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            geo.setAttribute('extra', new THREE.BufferAttribute(extra, 2));
+            snowPoints = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.35, transparent: true, opacity: 0.6 }));
+            scene.add(snowPoints);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = clock.getElapsedTime();
+
+            if (boostBloom > 0) {
+                boostBloom -= 0.05;
+                bloomPass.strength = 2.0 + boostBloom;
+            }
+
+            if(star) {
+                star.rotation.z = time * 0.4;
+                star.rotation.y = time * 0.6;
+                const intensity = 0.5 + Math.sin(time * 4) * 0.2 + boostBloom * 0.2;
+                star.material.color.setHSL(0.12, 1, intensity);
+            }
+
+            if(auroraParticles) {
+                const pos = auroraParticles.geometry.attributes.position.array;
+                for(let i=0; i<pos.length/3; i++){
+                    pos[i*3] += Math.sin(time * 0.2 + pos[i*3+1] * 0.01) * 0.1;
+                }
+                auroraParticles.geometry.attributes.position.needsUpdate = true;
+                auroraParticles.material.opacity = 0.1 + Math.sin(time * 0.5) * 0.05;
+            }
+
+            const positions = treePoints.geometry.attributes.position.array;
+            const pData = treePoints.geometry.attributes.pData.array;
+            for(let i=0; i<positions.length/3; i++) {
+                const idx = i * 3;
+                const phase = pData[idx] + time * pData[idx+1];
+                const drift = 0.006 * (1 + boostBloom);
+                positions[idx] += Math.sin(phase) * drift;
+                positions[idx+2] += Math.cos(phase) * drift;
+            }
+            treePoints.geometry.attributes.position.needsUpdate = true;
+            treePoints.rotation.y = time * 0.08;
+            if(trunk) trunk.rotation.y = time * 0.08;
+
+            ribbons.forEach(r => r.mesh.rotation.y = time * r.spin);
+
+            const snowPos = snowPoints.geometry.attributes.position.array;
+            const snowExtra = snowPoints.geometry.attributes.extra.array;
+            for(let i=0; i<snowPos.length/3; i++) {
+                const idx = i * 3; const eIdx = i * 2;
+                snowPos[idx+1] -= snowExtra[eIdx+1];
+                snowPos[idx] += Math.sin(time * 0.5 + snowExtra[eIdx]) * 0.06;
+                if(snowPos[idx+1] < -20) snowPos[idx+1] = 120;
+            }
+            snowPoints.geometry.attributes.position.needsUpdate = true;
+
+            camera.position.x = Math.sin(time * 0.05) * 12;
+            camera.position.y = 25 + Math.cos(time * 0.04) * 6;
+            camera.lookAt(0, 10, 0);
+
+            composer.render();
+        }
+
+        window.onload = () => { init(); animate(); };
+    </script>
+</body>
+</html>
